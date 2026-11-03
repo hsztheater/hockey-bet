@@ -1,0 +1,1015 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Oilers Ice Derby</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* Layout: one 320x180 pixel canvas, integer-scaled and letterboxed on arena black. Single dark look on purpose. */
+  :root {
+    color-scheme: dark;
+    --black: #0a0a0b;
+    --surface: #141415;
+    --line: #2b2b2e;
+    --white: #f6f4ee;
+    --muted: #9b978c;
+    --yellow: #ffcc10;
+    --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Courier New", monospace;
+  }
+  html, body { height: 100%; margin: 0; }
+  [hidden] { display: none !important; }
+  body {
+    box-sizing: border-box;
+    background: var(--black);
+    color: var(--white);
+    font-family: var(--mono);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 16px;
+    overflow: hidden;
+  }
+  #stage {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--black);
+  }
+  #stage:fullscreen { padding: 0; }
+  #stage.idle, #stage.idle canvas { cursor: none; }
+  canvas {
+    display: block;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    cursor: pointer;
+  }
+
+  .controls {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    transition: opacity .3s;
+  }
+  #stage.idle .controls { opacity: 0; pointer-events: none; }
+  .btn {
+    font: 700 12px/1 var(--mono);
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--yellow);
+    background: var(--black);
+    border: 2px solid var(--yellow);
+    padding: 7px 10px;
+    cursor: pointer;
+  }
+  .btn:hover { background: var(--yellow); color: var(--black); }
+  .btn:focus-visible { outline: 2px solid var(--white); outline-offset: 2px; }
+
+  .settings {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(10, 10, 11, .78);
+  }
+  .card {
+    width: min(420px, 100%);
+    box-sizing: border-box;
+    background: var(--surface);
+    border: 3px solid var(--yellow);
+    box-shadow: 6px 6px 0 var(--black);
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .card h2 {
+    margin: 0;
+    font: 800 18px/1 var(--mono);
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--yellow);
+  }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label, .check {
+    font-size: 12px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .field input {
+    font: 700 16px var(--mono);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--white);
+    background: var(--black);
+    border: 2px solid var(--line);
+    padding: 8px 10px;
+  }
+  .field input:focus { outline: none; border-color: var(--yellow); }
+  .check { display: flex; align-items: center; gap: 8px; color: var(--white); cursor: pointer; }
+  .check input { accent-color: var(--yellow); width: 16px; height: 16px; }
+  .keys {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--muted);
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
+  }
+  .keys b { color: var(--white); font-weight: 700; }
+  .card .btn { align-self: flex-start; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="game" width="320" height="180" aria-label="Oilers Ice Derby race track"></canvas>
+
+  <div class="controls" id="controls">
+    <button class="btn" id="btnSound" type="button">Sound on</button>
+    <button class="btn" id="btnFull" type="button">Fullscreen</button>
+    <button class="btn" id="btnSettings" type="button">Settings</button>
+  </div>
+
+  <div class="settings" id="settings" hidden>
+    <form class="card" id="settingsForm">
+      <h2>Settings</h2>
+      <div class="field">
+        <label for="titleInput">Title</label>
+        <input id="titleInput" maxlength="12" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="subtitleInput">Subtitle</label>
+        <input id="subtitleInput" maxlength="14" autocomplete="off" spellcheck="false">
+      </div>
+      <label class="check" for="soundToggle"><input type="checkbox" id="soundToggle"> Sound</label>
+      <p class="keys">
+        <b>Space</b> or click: start race / next race<br>
+        <b>Esc</b>: cancel race, back to bets<br>
+        <b>F</b>: fullscreen &nbsp; <b>M</b>: sound &nbsp; <b>S</b>: settings
+      </p>
+      <button class="btn" id="closeSettings" type="submit">Done</button>
+    </form>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  /* ------------------------------------------------------------------ *
+   *  Constants
+   * ------------------------------------------------------------------ */
+  const W = 320, H = 180;
+  const RACE_T = 30;              // seconds — the winner crosses at exactly this time
+  const DT = 1 / 120;             // race curve resolution
+  const T_MAX = 50;               // curves run past 30 s so the others can finish
+  const COUNTDOWN = 3;            // 3-2-1 then GO
+
+  const LANE_Y0 = 33, LANE_H = 22, LANES = 6;
+  const LANE_END = LANE_Y0 + LANE_H * LANES;   // 165
+  const START_X = 44, FINISH_X = 292;
+  const ICE_X0 = 20, ICE_X1 = 314;
+  const RINK_MID = (LANE_Y0 + LANE_END) / 2;
+
+  const C = {
+    black: '#0a0a0b', panel: '#141415', panel2: '#1c1c1e', line: '#2b2b2e',
+    yellow: '#ffcc10', white: '#f6f4ee', muted: '#9b978c',
+    ice: '#eaf3f7', iceShade: '#dbe8ef', iceLight: '#f6fbfd', laneLine: '#c6dae5',
+    blue: '#2a5bd7', red: '#d8262e', crease: '#a9d4ef',
+    helmet: '#141417', helmetHi: '#4a4a54', skin: '#f1bf94', skinSh: '#c98d63',
+    pants: '#1b1b1f', boot: '#2a2a30', blade: '#c4d3dc', stick: '#c99a5b', glove: '#3a2a20',
+    puck: '#0b0b0c'
+  };
+
+  const PLAYERS = [
+    { n: 1, name: 'RED',    c: '#e23a3f', d: '#9d1f25', num: '#f6f4ee', stripe: '#f6f4ee' },
+    { n: 2, name: 'BLUE',   c: '#2f6fe4', d: '#1c3f8f', num: '#f6f4ee', stripe: '#f6f4ee' },
+    { n: 3, name: 'GREEN',  c: '#2fae4e', d: '#1b6b2f', num: '#f6f4ee', stripe: '#f6f4ee' },
+    { n: 4, name: 'YELLOW', c: '#ffd21f', d: '#c49a00', num: '#0a0a0b', stripe: '#0a0a0b' },
+    { n: 5, name: 'ORANGE', c: '#ff8a1f', d: '#b85a0a', num: '#0a0a0b', stripe: '#f6f4ee' },
+    { n: 6, name: 'PURPLE', c: '#8e4ad6', d: '#5a2a92', num: '#f6f4ee', stripe: '#f6f4ee' }
+  ];
+
+  /* ------------------------------------------------------------------ *
+   *  Settings (stored per browser, safe if storage is blocked)
+   * ------------------------------------------------------------------ */
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem('iceDerby.' + k); return v === null ? d : v; } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem('iceDerby.' + k, v); } catch (e) {} }
+  };
+  const settings = {
+    title: store.get('title', 'OILERS'),
+    subtitle: store.get('subtitle', 'ICE DERBY'),
+    muted: store.get('muted', '0') === '1'
+  };
+
+  /* ------------------------------------------------------------------ *
+   *  Random (crypto, so every skater truly has a 1 in 6 chance)
+   * ------------------------------------------------------------------ */
+  const rnd = (() => {
+    const buf = new Uint32Array(256); let i = 256;
+    return () => {
+      if (i >= 256) { (window.crypto || window.msCrypto).getRandomValues(buf); i = 0; }
+      return buf[i++] / 4294967296;
+    };
+  })();
+  const range = (a, b) => a + rnd() * (b - a);
+
+  /* ------------------------------------------------------------------ *
+   *  Pixel font 5x7 + jersey digits 3x5
+   * ------------------------------------------------------------------ */
+  const FONT = {
+    A:[14,17,17,31,17,17,17], B:[30,17,17,30,17,17,30], C:[14,17,16,16,16,17,14], D:[30,17,17,17,17,17,30],
+    E:[31,16,16,30,16,16,31], F:[31,16,16,30,16,16,16], G:[14,17,16,23,17,17,15], H:[17,17,17,31,17,17,17],
+    I:[14,4,4,4,4,4,14], J:[7,2,2,2,2,18,12], K:[17,18,20,24,20,18,17], L:[16,16,16,16,16,16,31],
+    M:[17,27,21,21,17,17,17], N:[17,17,25,21,19,17,17], O:[14,17,17,17,17,17,14], P:[30,17,17,30,16,16,16],
+    Q:[14,17,17,17,21,18,13], R:[30,17,17,30,20,18,17], S:[15,16,16,14,1,1,30], T:[31,4,4,4,4,4,4],
+    U:[17,17,17,17,17,17,14], V:[17,17,17,17,17,10,4], W:[17,17,17,21,21,21,10], X:[17,17,10,4,10,17,17],
+    Y:[17,17,10,4,4,4,4], Z:[31,1,2,4,8,16,31],
+    '0':[14,17,19,21,25,17,14], '1':[4,12,4,4,4,4,14], '2':[14,17,1,2,4,8,31], '3':[31,2,4,2,1,17,14],
+    '4':[2,6,10,18,31,2,2], '5':[31,16,30,1,1,17,14], '6':[6,8,16,30,17,17,14], '7':[31,1,2,4,8,8,8],
+    '8':[14,17,17,14,17,17,14], '9':[14,17,17,15,1,2,12],
+    ' ':[0,0,0,0,0,0,0], '!':[4,4,4,4,4,0,4], '.':[0,0,0,0,0,12,12], ':':[0,12,12,0,12,12,0],
+    '-':[0,0,0,31,0,0,0], '#':[10,10,31,10,31,10,10], '?':[14,17,1,2,4,0,4], '/':[1,1,2,4,8,16,16],
+    "'":[4,4,8,0,0,0,0], '&':[12,18,20,8,21,18,13], ',':[0,0,0,0,12,4,8], '(':[2,4,8,8,8,4,2],
+    ')':[8,4,2,2,2,4,8], '+':[0,4,4,31,4,4,0], 'Ø':[14,19,21,21,21,25,14], 'Æ':[15,20,20,31,20,20,23]
+  };
+  const DIG3 = { 1:[2,6,2,2,7], 2:[7,1,7,4,7], 3:[7,1,7,1,7], 4:[5,5,7,1,1], 5:[7,4,7,1,7], 6:[7,4,7,5,7] };
+
+  const clean = s => String(s).toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const textW = (s, sc = 1) => { const n = clean(s).length; return n ? n * 6 * sc - sc : 0; };
+
+  /* ------------------------------------------------------------------ *
+   *  Canvas
+   * ------------------------------------------------------------------ */
+  const stage = document.getElementById('stage');
+  const cvs = document.getElementById('game');
+  const ctx = cvs.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  function px(x, y, w, h, col) { ctx.fillStyle = col; ctx.fillRect(x | 0, y | 0, w, h); }
+
+  function glyphs(g, s, x, y, sc, col) {
+    ctx.fillStyle = col;
+    for (let i = 0; i < s.length; i++) {
+      const gl = g[s[i]] || g['?'];
+      for (let r = 0; r < gl.length; r++) {
+        const row = gl[r];
+        for (let c = 0; c < 5; c++) if ((row >> (4 - c)) & 1) ctx.fillRect(x + i * 6 * sc + c * sc, y + r * sc, sc, sc);
+      }
+    }
+  }
+  function text(s, x, y, sc, col, outline) {
+    s = clean(s); x = Math.round(x); y = Math.round(y);
+    if (outline) {
+      const o = outline === true ? C.black : outline;
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 2; dy++) if (dx || dy) glyphs(FONT, s, x + dx, y + dy, sc, o);
+    }
+    glyphs(FONT, s, x, y, sc, col);
+    return textW(s, sc);
+  }
+  const textC = (s, cx, y, sc, col, o) => text(s, cx - textW(s, sc) / 2, y, sc, col, o);
+
+  function digit3(n, x, y, col) {
+    const g = DIG3[n]; ctx.fillStyle = col;
+    for (let r = 0; r < 5; r++) for (let c = 0; c < 3; c++) if ((g[r] >> (2 - c)) & 1) ctx.fillRect(x + c, y + r, 1, 1);
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  Skater sprite (22 x 20, faces right, feet on row 19)
+   * ------------------------------------------------------------------ */
+  const UPPER = [
+    '........hhhh..........',
+    '.......hghhhh.........',
+    '.......hhhhhss........',
+    '.......hhhssSs........',
+    '.........sSs..........',
+    '......JJJJJJJ.........',
+    '.....JJJJJJJJJ........',
+    '.....DJJJJJJJJJg......',
+    '.....DJJJJJJJJ.gg.....',
+    '.....DJJJJJJJ...t.....',
+    '.....WWWWWWWW....t....',
+    '.....DDDDDDDD....t....',
+    '.....pppppppp.....t...',
+    '.....pPppppppp....t...'
+  ];
+  const LEGS = {
+    A: ['....ppp....ppp.....t..',
+        '...JJ.......JJ.....t..',
+        '..JJ........JJ......t.',
+        '.JJ.........JJ......t.',
+        'bbb........bbbb...tttt',
+        'www.......wwwwww......'],
+    M: ['.....ppp..ppp......t..',
+        '.....JJ....JJ......t..',
+        '....JJ.....JJ.......t.',
+        '....JJ.....JJ.......t.',
+        '...bbbb...bbbb....tttt',
+        '..wwwww..wwwww........'],
+    B: ['......pppppp.......t..',
+        '....JJJ...JJ.......t..',
+        '..JJJ......JJ.......t.',
+        'bJJ........JJ.......t.',
+        'bww.......bbbb....tttt',
+        '..........wwwwww......']
+  };
+  const CYCLE = ['A', 'M', 'B', 'M'];
+
+  function palette(p) {
+    return { h: C.helmet, g: C.helmetHi, s: C.skin, S: C.skinSh, J: p.c, D: p.d, W: p.stripe,
+             p: C.pants, P: '#34343b', b: C.boot, w: C.blade, t: C.stick };
+  }
+  const PALS = PLAYERS.map(palette);
+  for (const pal of PALS) pal.gl = C.glove;
+
+  function drawRows(rows, ox, oy, pal, skipStick) {
+    for (let y = 0; y < rows.length; y++) {
+      const row = rows[y];
+      for (let x = 0; x < row.length; x++) {
+        const ch = row[x];
+        if (ch === '.') continue;
+        if (skipStick && (ch === 't' || ch === 'g')) continue;
+        ctx.fillStyle = ch === 'g' && !skipStick && y > 5 ? pal.gl : pal[ch];
+        ctx.fillRect(ox + x, oy + y, 1, 1);
+      }
+    }
+  }
+
+  function drawSkater(i, ox, oy, frame, celebrate, t) {
+    const p = PLAYERS[i], pal = PALS[i];
+    if (celebrate) {
+      const hop = (Math.floor(t * 4) % 2) ? -2 : 0;
+      oy += hop;
+      drawRows(UPPER, ox, oy, pal, true);
+      drawRows(LEGS.M, ox, oy + 14, pal, true);
+      // raised arm + stick
+      px(ox + 13, oy + 5, 1, 1, p.c); px(ox + 14, oy + 4, 1, 1, p.c); px(ox + 14, oy + 5, 1, 1, p.d);
+      px(ox + 15, oy + 3, 2, 2, C.glove);
+      for (let k = 0; k < 9; k++) px(ox + 16 + (k >> 2), oy + 2 - k, 1, 1, C.stick);
+      px(ox + 17, oy - 7, 3, 1, C.stick); px(ox + 19, oy - 8, 1, 1, C.stick);
+    } else {
+      drawRows(UPPER, ox, oy, pal, false);
+      drawRows(LEGS[frame], ox, oy + 14, pal, false);
+    }
+    digit3(p.n, ox + 8, oy + 5, p.num);
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  Static rink (pre-rendered once)
+   * ------------------------------------------------------------------ */
+  const rink = document.createElement('canvas');
+  rink.width = W; rink.height = H;
+  (function paintRink() {
+    const r = rink.getContext('2d');
+    const p = (x, y, w, h, c) => { r.fillStyle = c; r.fillRect(x, y, w, h); };
+
+    p(0, 0, W, H, C.black);
+    // ice
+    p(ICE_X0, LANE_Y0, ICE_X1 - ICE_X0, LANE_END - LANE_Y0, C.ice);
+    // skate scratches
+    for (let k = 0; k < 520; k++) {
+      const x = ICE_X0 + Math.floor(rnd() * (ICE_X1 - ICE_X0));
+      const y = LANE_Y0 + Math.floor(rnd() * (LANE_END - LANE_Y0));
+      p(x, y, 1 + Math.floor(rnd() * 4), 1, rnd() < .6 ? C.iceShade : C.iceLight);
+    }
+    // center circle (faint blue)
+    r.globalAlpha = .35;
+    for (let a = 0; a < 360; a += 1) {
+      const rad = a * Math.PI / 180;
+      p(Math.round(168 + Math.cos(rad) * 30), Math.round(RINK_MID + Math.sin(rad) * 30), 1, 1, C.blue);
+    }
+    r.globalAlpha = 1;
+    // blue lines + dashed red centre line
+    for (const bx of [126, 210]) { r.globalAlpha = .75; p(bx, LANE_Y0, 2, LANE_END - LANE_Y0, C.blue); }
+    r.globalAlpha = .8;
+    for (let y = LANE_Y0; y < LANE_END; y += 6) p(167, y, 2, 4, C.red);
+    r.globalAlpha = 1;
+    // lane dividers
+    for (let k = 1; k < LANES; k++) p(ICE_X0, LANE_Y0 + k * LANE_H, ICE_X1 - ICE_X0, 1, C.laneLine);
+    // start line
+    p(START_X, LANE_Y0, 1, LANE_END - LANE_Y0, '#8fb0c2');
+    // per lane: crease, goal line, net
+    for (let k = 0; k < LANES; k++) {
+      const top = LANE_Y0 + k * LANE_H, base = top + 20;
+      // blue crease in front of the net
+      for (let dy = 0; dy < 12; dy++) {
+        const half = Math.round(Math.sqrt(Math.max(0, 1 - Math.pow((dy - 5.5) / 6, 2))) * 6);
+        if (half > 0) p(FINISH_X - half, base - 11 + dy - 1, half, 1, C.crease);
+      }
+      // net: red frame, white mesh
+      const nx = FINISH_X + 2, ny = base - 13;
+      for (let y = 0; y < 13; y++) for (let x = 0; x < 11; x++) {
+        if ((x + y) % 2 === 0 && x < 11 - Math.floor(y / 4)) p(nx + x, ny + y, 1, 1, '#d7dde1');
+      }
+      p(nx, ny, 1, 14, C.red);            // front post
+      p(nx, ny, 10, 1, C.red);            // crossbar
+      for (let y = 0; y < 14; y++) p(nx + 10 - Math.floor(y / 4) + 1, ny + y, 1, 1, '#b3191f'); // back frame
+      p(nx, base, 13, 1, '#b3191f');
+    }
+    // goal line (red), over the crease
+    p(FINISH_X, LANE_Y0, 1, LANE_END - LANE_Y0, C.red);
+
+    // boards: far side (top) and near side (bottom), ends
+    p(0, 30, W, 1, C.yellow); p(0, 31, W, 2, C.white);
+    p(0, LANE_END, W, 2, C.white); p(0, LANE_END + 2, W, 1, C.yellow);
+    p(ICE_X1, LANE_Y0, 4, LANE_END - LANE_Y0, C.white); p(ICE_X1 + 4, LANE_Y0, 2, LANE_END - LANE_Y0, C.yellow);
+    // player bench / start gate
+    p(0, LANE_Y0, ICE_X0 - 1, LANE_END - LANE_Y0, C.panel);
+    p(ICE_X0 - 1, LANE_Y0, 1, LANE_END - LANE_Y0, C.white);
+    for (let k = 1; k < LANES; k++) p(0, LANE_Y0 + k * LANE_H, ICE_X0 - 1, 1, C.line);
+  })();
+
+  /* crowd behind the far boards */
+  const FANS = [];
+  (function makeCrowd() {
+    const shirts = [C.yellow, C.yellow, C.yellow, '#26262c', C.white, '#ff8a1f', '#2f4fa8', C.yellow];
+    const skins = ['#f1bf94', '#d9a274', '#a8714a', '#7a4e32', '#f6d2b0'];
+    for (let row = 0; row < 3; row++) {
+      for (let x = 2 + row * 2; x < W - 2; x += 4) {
+        FANS.push({ x, row, shirt: shirts[Math.floor(rnd() * shirts.length)], skin: skins[Math.floor(rnd() * skins.length)], ph: rnd() * 10, sp: range(3, 7) });
+      }
+    }
+  })();
+
+  function drawCrowd(t, excite) {
+    px(0, 18, W, 12, C.panel2);
+    for (const f of FANS) {
+      const jumping = excite > 0 && Math.sin(t * f.sp + f.ph) > 1 - excite * 1.4;
+      const y = 19 + f.row * 4 - (jumping ? 1 : 0);
+      px(f.x, y, 2, 2, f.skin);
+      px(f.x - 1, y + 2, 4, Math.min(2, 30 - (y + 2)), f.shirt);
+      if (jumping && excite > .6) { px(f.x - 1, y - 1, 1, 1, f.shirt); px(f.x + 2, y - 1, 1, 1, f.shirt); }
+    }
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  Race builder: winner drawn first, curves shaped to fit
+   * ------------------------------------------------------------------ */
+  const N_SAMPLES = Math.ceil(T_MAX / DT) + 1;
+  const I_RACE = Math.round(RACE_T / DT);
+
+  function rawCurve() {
+    const keyEvery = 2;
+    const keys = [];
+    for (let k = 0; k <= T_MAX / keyEvery + 1; k++) {
+      let v = range(0.55, 1.45);
+      const roll = rnd();
+      if (roll < 0.12) v = range(1.5, 1.8);       // breakaway burst
+      else if (roll < 0.22) v = range(0.3, 0.5);  // slow change / tired legs
+      keys.push(v);
+    }
+    const arr = new Float32Array(N_SAMPLES);
+    let pos = 0;
+    for (let i = 0; i < N_SAMPLES; i++) {
+      const t = i * DT;
+      const seg = t / keyEvery, k0 = Math.floor(seg), f = seg - k0, s = f * f * (3 - 2 * f);
+      let v = keys[k0] + (keys[k0 + 1] - keys[k0]) * s;
+      if (t < 1.2) { const u = t / 1.2; v *= u * u * (3 - 2 * u); } // push off the start line
+      pos += v * DT;
+      arr[i] = pos;
+    }
+    return arr;
+  }
+
+  function buildRace() {
+    const winner = Math.floor(rnd() * LANES);
+    const wantComeback = rnd() < 0.5;
+    let best = null;
+
+    for (let attempt = 0; attempt < 400; attempt++) {
+      // distance covered at 30 s: winner = 1, everyone else short of the line
+      const d = new Array(LANES);
+      d[winner] = 1;
+      const others = [0, 1, 2, 3, 4, 5].filter(i => i !== winner).sort(() => rnd() - 0.5);
+      let prev = range(0.935, 0.972);
+      d[others[0]] = prev;
+      for (let k = 1; k < others.length; k++) { prev = prev - range(0.014, 0.045); d[others[k]] = Math.max(prev, 0.8); }
+
+      const curves = [];
+      for (let i = 0; i < LANES; i++) {
+        const raw = rawCurve(), s = d[i] / raw[I_RACE];
+        for (let j = 0; j < N_SAMPLES; j++) raw[j] *= s;
+        curves.push(raw);
+      }
+
+      // count lead changes and check the drama
+      let leader = -1, changes = 0, winnerLedAt25 = false;
+      for (let t = 1; t <= RACE_T - 0.5; t += 0.25) {
+        const j = Math.round(t / DT);
+        let L = 0;
+        for (let i = 1; i < LANES; i++) if (curves[i][j] > curves[L][j]) L = i;
+        if (leader !== -1 && L !== leader) changes++;
+        leader = L;
+        if (Math.abs(t - (RACE_T - 5)) < 0.01) winnerLedAt25 = (L === winner);
+      }
+      const ok = changes >= 3 && (!wantComeback || !winnerLedAt25);
+      best = { winner, curves, d };
+      if (ok) break;
+    }
+
+    // crossing times → finishing order
+    const cross = best.curves.map((c, i) => {
+      if (i === best.winner) return RACE_T;
+      for (let j = I_RACE; j < N_SAMPLES; j++) if (c[j] >= 1) return j * DT;
+      return Infinity;
+    });
+    const order = [0, 1, 2, 3, 4, 5].sort((a, b) => cross[a] - cross[b]);
+    best.cross = cross;
+    best.place = new Array(LANES);
+    order.forEach((i, k) => { best.place[i] = k + 1; });
+    return best;
+  }
+
+  function progressAt(race, i, t) {
+    if (t <= 0) return 0;
+    const c = race.curves[i];
+    if (i === race.winner && t >= RACE_T) return 1;
+    const f = t / DT, j = Math.floor(f);
+    if (j >= N_SAMPLES - 1) return Math.min(1, c[N_SAMPLES - 1]);
+    const v = c[j] + (c[j + 1] - c[j]) * (f - j);
+    return Math.min(1, v);
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  Audio (Web Audio, generated — no files)
+   * ------------------------------------------------------------------ */
+  let ac = null, master = null, noiseBuf = null, raceBus = null;
+
+  function initAudio() {
+    if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    ac = new AC();
+    master = ac.createGain();
+    master.gain.value = settings.muted ? 0 : 0.7;
+    master.connect(ac.destination);
+    noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
+    const ch = noiseBuf.getChannelData(0);
+    for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
+  }
+  function applyMute() {
+    if (master) master.gain.setTargetAtTime(settings.muted ? 0 : 0.7, ac.currentTime, 0.02);
+    document.getElementById('btnSound').textContent = settings.muted ? 'Sound off' : 'Sound on';
+    document.getElementById('soundToggle').checked = !settings.muted;
+  }
+
+  function tone(freq, t, dur, type, vol, dest, slide) {
+    if (!ac) return;
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(dest || master);
+    o.start(t); o.stop(t + dur + 0.05);
+  }
+  function noise(t, dur, vol, freq, type, dest) {
+    if (!ac) return null;
+    const s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+    s.buffer = noiseBuf; s.loop = true;
+    f.type = type || 'bandpass'; f.frequency.value = freq || 3000;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    s.connect(f).connect(g).connect(dest || master);
+    s.start(t); s.stop(t + dur + 0.05);
+    return g;
+  }
+  const midi = m => 440 * Math.pow(2, (m - 69) / 12);
+
+  // arena chiptune: Am F C G, 160 bpm eighths
+  const SONG = { step: 60 / 160 / 2, chords: [[45, 0], [41, 1], [48, 1], [43, 1]] };
+  const ARP = [0, 'third', 7, 12, 7, 'third', 12, 15];
+  let music = null;
+
+  function startRaceAudio(startAt) {
+    if (!ac) return;
+    raceBus = ac.createGain(); raceBus.gain.value = 1; raceBus.connect(master);
+    // countdown beeps
+    for (let k = 0; k < 3; k++) tone(midi(69), startAt - COUNTDOWN + k, 0.16, 'square', 0.12, raceBus);
+    tone(midi(81), startAt, 0.5, 'square', 0.14, raceBus);
+    // last five seconds tick
+    for (let k = RACE_T - 5; k < RACE_T; k++) tone(midi(96), startAt + k, 0.05, 'square', 0.06, raceBus);
+    // crowd bed
+    const src = ac.createBufferSource(), lp = ac.createBiquadFilter(), g = ac.createGain();
+    src.buffer = noiseBuf; src.loop = true; lp.type = 'lowpass'; lp.frequency.value = 700;
+    g.gain.setValueAtTime(0.0001, startAt - 0.5); g.gain.exponentialRampToValueAtTime(0.05, startAt + 1);
+    src.connect(lp).connect(g).connect(raceBus); src.start(startAt - 0.5);
+    music = { next: startAt, i: 0, crowd: g, crowdSrc: src };
+  }
+
+  function pumpMusic(stopAt) {
+    if (!ac || !music || !raceBus) return;
+    while (music.next < ac.currentTime + 0.25 && music.next < stopAt) {
+      const t = music.next, i = music.i;
+      const bar = Math.floor(i / 8) % 4, st = i % 8;
+      const [root, major] = SONG.chords[bar];
+      const late = (t - (stopAt - RACE_T)) > RACE_T - 10;
+      // bass
+      tone(midi(root + (st % 2 ? 12 : 0)), t, SONG.step * 0.9, 'triangle', 0.18, raceBus);
+      // lead arpeggio (gets an octave lift for the last 10 seconds)
+      if (st !== 7 || bar === 3) {
+        let iv = ARP[st]; if (iv === 'third') iv = major ? 4 : 3;
+        tone(midi(root + 24 + iv + (late ? 12 : 0)), t, SONG.step * 0.7, 'square', 0.035, raceBus);
+      }
+      // hat
+      if (st % 2 === 1) noise(t, 0.03, 0.03, 8000, 'highpass', raceBus);
+      if (st === 0 || st === 4) tone(110, t, 0.08, 'sine', 0.12, raceBus, 45);
+      music.next += SONG.step; music.i++;
+    }
+  }
+
+  function goalHorn() {
+    if (!ac || !raceBus) return;
+    const t = ac.currentTime + 0.02;
+    const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1400; lp.connect(raceBus);
+    for (const f of [146.8, 185, 220, 293.7]) {
+      for (const det of [-4, 4]) {
+        const o = ac.createOscillator(), g = ac.createGain();
+        o.type = 'sawtooth'; o.frequency.value = f; o.detune.value = det;
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.045, t + 0.06);
+        g.gain.setValueAtTime(0.045, t + 2.1);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 2.6);
+        o.connect(g).connect(lp); o.start(t); o.stop(t + 2.7);
+      }
+    }
+    // cheer
+    if (music && music.crowd) {
+      music.crowd.gain.cancelScheduledValues(t);
+      music.crowd.gain.setValueAtTime(0.05, t);
+      music.crowd.gain.exponentialRampToValueAtTime(0.22, t + 0.4);
+      music.crowd.gain.exponentialRampToValueAtTime(0.0001, t + 6);
+      music.crowdSrc.stop(t + 6.2);
+    }
+    const g2 = noise(t, 3.5, 0.08, 1400, 'bandpass', raceBus);
+    if (g2) { g2.gain.cancelScheduledValues(t); g2.gain.setValueAtTime(0.0001, t); g2.gain.exponentialRampToValueAtTime(0.09, t + 0.5); g2.gain.exponentialRampToValueAtTime(0.0001, t + 3.5); }
+  }
+
+  function killRaceAudio() {
+    if (raceBus && ac) {
+      const bus = raceBus;
+      bus.gain.setTargetAtTime(0, ac.currentTime, 0.03);
+      setTimeout(() => { try { bus.disconnect(); } catch (e) {} }, 300);
+    }
+    raceBus = null; music = null;
+  }
+
+  function blip(f) { if (ac) tone(f, ac.currentTime + 0.01, 0.08, 'square', 0.08); }
+
+  /* ------------------------------------------------------------------ *
+   *  Game state
+   * ------------------------------------------------------------------ */
+  let state = 'lobby';     // lobby | countdown | race | finish
+  let race = null;
+  let raceNo = 1;
+  let tCount0 = 0;         // when the countdown started (s)
+  let tRace0 = 0;          // when the race started (s)
+  let tFinish = 0;
+  let particles = [];
+  const anim = PLAYERS.map(() => ({ phase: rnd() * 4, prevP: 0 }));
+  const now = () => performance.now() / 1000;
+
+  function startCountdown() {
+    initAudio();
+    race = buildRace();
+    particles = [];
+    anim.forEach(a => { a.prevP = 0; });
+    tCount0 = now();
+    tRace0 = tCount0 + COUNTDOWN;
+    state = 'countdown';
+    if (ac) startRaceAudio(ac.currentTime + COUNTDOWN);
+  }
+
+  function finishRace() {
+    state = 'finish';
+    tFinish = now();
+    goalHorn();
+    for (let k = 0; k < 140; k++) {
+      const p = PLAYERS[race.winner];
+      particles.push({ x: range(30, 310), y: range(20, 40), vx: range(-12, 12), vy: range(10, 34),
+        life: range(2.5, 5), age: 0, col: [p.c, C.yellow, C.white, p.c][k % 4], conf: true, ph: rnd() * 6 });
+    }
+  }
+
+  function backToLobby() {
+    if (state === 'finish') raceNo++;
+    killRaceAudio();
+    state = 'lobby';
+    race = null;
+    particles = [];
+  }
+
+  function action() {
+    if (state === 'lobby') startCountdown();
+    else if (state === 'finish' && now() - tFinish > 1.2) backToLobby();
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  Drawing helpers
+   * ------------------------------------------------------------------ */
+  function panel(x, y, w, h) {
+    x |= 0; y |= 0;
+    ctx.globalAlpha = 0.92; px(x + 1, y + 1, w - 2, h - 2, C.black); ctx.globalAlpha = 1;
+    px(x + 2, y, w - 4, 2, C.yellow); px(x + 2, y + h - 2, w - 4, 2, C.yellow);
+    px(x, y + 2, 2, h - 4, C.yellow); px(x + w - 2, y + 2, 2, h - 4, C.yellow);
+    px(x + 1, y + 1, 1, 1, C.yellow); px(x + w - 2, y + 1, 1, 1, C.yellow);
+    px(x + 1, y + h - 2, 1, 1, C.yellow); px(x + w - 2, y + h - 2, 1, 1, C.yellow);
+    px(x + 3, y + 3, w - 6, 1, C.line);
+  }
+
+  function numberBox(i, x, y, sc, ring) {
+    const p = PLAYERS[i], s = 8 * sc;
+    if (ring) px(x - 2, y - 2, s + 4, s + 4, C.yellow);
+    px(x - 1, y - 1, s + 2, s + 2, C.black);
+    px(x, y, s, s, p.c);
+    px(x, y + s - sc, s, sc, p.d);
+    text(String(p.n), x + (s - (5 * sc)) / 2, y + (s - 7 * sc) / 2 - (sc > 1 ? 0 : 0), sc, p.num);
+  }
+
+  function chip(label, x, y, col) {
+    const w = textW(label) + 6;
+    px(x, y, w, 11, C.black);
+    px(x + 1, y + 10, w - 1, 1, '#000');
+    text(label, x + 3, y + 2, 1, col);
+  }
+
+  function fmtTime(t) {
+    t = Math.max(0, t);
+    const s = Math.floor(t), cs = Math.floor((t - s) * 100);
+    return '0:' + String(s).padStart(2, '0') + '.' + String(cs).padStart(2, '0');
+  }
+
+  function drawHeader(raceTime) {
+    px(0, 0, W, 18, C.black);
+    const title = settings.title || ' ';
+    const sub = settings.subtitle || '';
+    let sc = textW(title, 2) + textW(sub, 1) + 12 > 220 ? 1 : 2;
+    const tw = text(title, 6, sc === 2 ? 2 : 6, sc, C.yellow);
+    if (sub) {
+      const sx = 6 + tw + 7;
+      if (sx + textW(sub) < 226) {
+        px(sx - 4, 5, 1, 9, C.line);
+        text(sub, sx, 6, 1, C.white);
+      }
+    }
+    if (raceTime === null) {
+      const r = 'RACE ' + raceNo;
+      text(r, 314 - textW(r), 6, 1, C.muted);
+    } else {
+      const s = fmtTime(raceTime);
+      const late = state === 'race' && raceTime >= RACE_T - 5;
+      text(s, 314 - textW(s, 2), 2, 2, late && Math.floor(raceTime * 4) % 2 ? C.white : C.yellow);
+    }
+    px(0, 17, W, 1, C.line);
+  }
+
+  function drawFooter(left, leftCol, right) {
+    px(0, LANE_END + 3, W, H - LANE_END - 3, C.black);
+    if (left) text(left, 6, 171, 1, leftCol || C.muted);
+    if (right) text(right, 314 - textW(right), 171, 1, C.muted);
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  Frame
+   * ------------------------------------------------------------------ */
+  let lastT = now();
+
+  function frame() {
+    const t = now();
+    const dt = Math.min(0.05, t - lastT); lastT = t;
+
+    let raceTime = null;
+    if (state === 'countdown') {
+      if (t >= tRace0) state = 'race';
+    }
+    if (state === 'race' || state === 'finish') raceTime = t - tRace0;
+    if (state === 'race' && raceTime >= RACE_T) { finishRace(); }
+    if (music && raceBus) pumpMusic(ac.currentTime + (state === 'race' ? RACE_T - raceTime : -1));
+
+    /* --- background --- */
+    ctx.drawImage(rink, 0, 0);
+    const excite = state === 'finish' ? 1 : state === 'race' ? 0.35 + 0.4 * Math.min(1, raceTime / RACE_T) : state === 'countdown' ? 0.25 : 0.05;
+    drawCrowd(t, excite);
+
+    const shownTime = state === 'finish' ? RACE_T : raceTime;
+    drawHeader(state === 'countdown' ? 0 : shownTime);
+
+    /* --- positions --- */
+    const rt = state === 'race' || state === 'finish' ? raceTime : 0;
+    const prog = PLAYERS.map((_, i) => race ? progressAt(race, i, rt) : 0);
+    let leader = -1;
+    if (state === 'race') { leader = 0; for (let i = 1; i < LANES; i++) if (prog[i] > prog[leader]) leader = i; }
+
+    /* --- winner lane glow + goal lamp --- */
+    if (state === 'finish') {
+      const top = LANE_Y0 + race.winner * LANE_H;
+      const pulse = 0.12 + 0.1 * Math.sin((t - tFinish) * 8);
+      ctx.globalAlpha = pulse; px(ICE_X0, top + 1, ICE_X1 - ICE_X0, LANE_H - 1, C.yellow); ctx.globalAlpha = 1;
+      const on = Math.floor((t - tFinish) * 6) % 2 === 0;
+      ctx.globalAlpha = on ? 0.35 : 0.12; px(FINISH_X + 1, top + 4, 14, 17, C.red); ctx.globalAlpha = 1;
+      px(FINISH_X + 5, top + 1, 4, 3, on ? '#ff3b3b' : '#6a1013');
+      px(FINISH_X + 6, top + 1, 2, 1, on ? '#ffd0d0' : '#6a1013');
+    }
+
+    /* --- lane number boxes --- */
+    for (let i = 0; i < LANES; i++) {
+      const top = LANE_Y0 + i * LANE_H;
+      numberBox(i, 2, top + 3, 2, i === leader && Math.floor(t * 4) % 2 === 0);
+    }
+
+    /* --- skaters --- */
+    for (let i = 0; i < LANES; i++) {
+      const top = LANE_Y0 + i * LANE_H, base = top + 20;
+      const p = prog[i];
+      const tip = START_X + p * (FINISH_X - START_X);
+      const ox = Math.round(tip) - 25, oy = top + 1;
+      const a = anim[i];
+      const vel = Math.max(0, (p - a.prevP) / Math.max(dt, 1e-3)); // progress / s
+      a.prevP = p;
+      const crossed = race && p >= 1;
+      let frameKey = 'M';
+      if ((state === 'race' || state === 'finish') && !crossed) {
+        a.phase += vel * 30 * 3.2 * dt;
+        frameKey = CYCLE[Math.floor(a.phase) % 4];
+        // ice spray from the skates on a fast stride
+        const rel = vel * RACE_T;
+        if (rel > 1.05 && rnd() < Math.min(0.7, (rel - 1) * 1.2)) {
+          particles.push({ x: ox + 2 + rnd() * 3, y: base - rnd() * 2, vx: range(-30, -8), vy: range(-14, -3), life: range(0.25, 0.5), age: 0, col: rnd() < .5 ? C.white : '#bfe0f2' });
+        }
+      } else if (state === 'lobby' || state === 'countdown') {
+        frameKey = (Math.floor(t * 1.5 + i * 0.7) % 6 === 0) ? 'A' : 'M';
+      }
+      const celebrate = state === 'finish' && i === race.winner;
+      drawSkater(i, ox, oy, frameKey, celebrate, t);
+
+      // puck
+      let puckX = Math.round(tip) - 3;
+      if (crossed) {
+        const since = (state === 'finish' ? raceTime : rt) - race.cross[i];
+        puckX = FINISH_X - 2 + Math.min(10, Math.max(0, since) * 70);
+      }
+      px(puckX, base - 1, 3, 2, C.puck);
+      px(puckX, base - 1, 3, 1, '#2c2c30');
+
+      // finishing place next to the net
+      if (crossed && race.place[i] > 1) {
+        const lab = ['', '1ST', '2ND', '3RD', '4TH', '5TH', '6TH'][race.place[i]];
+        px(FINISH_X + 2, top + 2, textW(lab) + 4, 9, C.black);
+        text(lab, FINISH_X + 4, top + 3, 1, C.white);
+      }
+
+      // lobby colour chips
+      if (state === 'lobby' || state === 'countdown') chip(PLAYERS[i].name, START_X + 6, top + 6, PLAYERS[i].c);
+    }
+
+    /* --- particles --- */
+    particles = particles.filter(q => (q.age += dt) < q.life);
+    for (const q of particles) {
+      if (q.conf) { q.vx += Math.sin(t * 3 + q.ph) * 30 * dt; q.y += q.vy * dt; q.x += q.vx * dt; }
+      else { q.vy += 40 * dt; q.x += q.vx * dt; q.y += q.vy * dt; }
+      px(q.x, q.y, q.conf && Math.floor(t * 8 + q.ph) % 2 ? 2 : 1, 1, q.col);
+    }
+
+    /* --- overlays --- */
+    if (state === 'lobby') {
+      const pw = 190, ph = 48, x = 96, y = RINK_MID - ph / 2;
+      panel(x, y, pw, ph);
+      textC('PLACE YOUR BETS', x + pw / 2, y + 10, 2, C.yellow);
+      if (Math.floor(t * 1.6) % 2 === 0) textC('PRESS SPACE TO START', x + pw / 2, y + 32, 1, C.white);
+      drawFooter('SPACE: START   F: FULLSCREEN   M: SOUND   S: SETUP', C.muted, null);
+    }
+
+    if (state === 'countdown') {
+      const k = Math.min(2, Math.floor(t - tCount0));
+      const local = (t - tCount0) - k;
+      const sc = local < 0.08 ? 7 : 6;
+      const d = String(3 - k);
+      textC(d, 168, RINK_MID - 3.5 * sc, sc, C.yellow, true);
+      drawFooter('GET READY...', C.white, null);
+    }
+
+    if (state === 'race') {
+      if (raceTime < 0.7) textC('GO!', 168, RINK_MID - 21, 6, C.yellow, true);
+      const L = PLAYERS[leader];
+      px(0, LANE_END + 3, W, H - LANE_END - 3, C.black);
+      const w = text('LEADER', 6, 171, 1, C.muted);
+      text('#' + L.n + ' ' + L.name, 6 + w + 6, 171, 1, L.c);
+      text('ESC: CANCEL', 314 - textW('ESC: CANCEL'), 171, 1, C.line === '' ? C.muted : C.muted);
+    }
+
+    if (state === 'finish') {
+      const p = PLAYERS[race.winner];
+      const since = t - tFinish;
+      const pw = 184, ph = 72, x = 58, y = RINK_MID - ph / 2;
+      if (since > 0.35) {
+        panel(x, y, pw, ph);
+        const pop = since < 0.45 ? 4 : 3;
+        textC('WINNER!', x + pw / 2, y + 8, pop, C.yellow);
+        const name = p.name;
+        const total = 16 + 6 + textW(name, 2);
+        const bx = x + pw / 2 - total / 2;
+        numberBox(race.winner, bx, y + 36, 2, false);
+        text(name, bx + 22, y + 37, 2, p.c);
+        if (since > 1.2 && Math.floor(t * 1.6) % 2 === 0) textC('PRESS SPACE FOR NEXT RACE', x + pw / 2, y + 59, 1, C.white);
+      } else {
+        textC('GOAL!', 168, RINK_MID - 14, 4, C.red, true);
+      }
+      drawFooter('WINNER  #' + p.n + ' ' + p.name, C.yellow, 'SPACE: NEXT RACE');
+    }
+
+    requestAnimationFrame(frame);
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  Layout: integer pixel scale that fits the window
+   * ------------------------------------------------------------------ */
+  function fit() {
+    const r = stage.getBoundingClientRect();
+    let sc = Math.floor(Math.min(r.width / W, r.height / H));
+    if (sc < 1) sc = Math.min(r.width / W, r.height / H);
+    cvs.style.width = Math.floor(W * sc) + 'px';
+    cvs.style.height = Math.floor(H * sc) + 'px';
+  }
+  window.addEventListener('resize', fit);
+  document.addEventListener('fullscreenchange', () => setTimeout(fit, 50));
+
+  /* ------------------------------------------------------------------ *
+   *  Controls
+   * ------------------------------------------------------------------ */
+  const settingsEl = document.getElementById('settings');
+  const titleIn = document.getElementById('titleInput');
+  const subIn = document.getElementById('subtitleInput');
+
+  function toggleFullscreen() {
+    try {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else if (stage.requestFullscreen) stage.requestFullscreen().catch(() => {});
+    } catch (e) {}
+  }
+  function toggleMute() {
+    initAudio();
+    settings.muted = !settings.muted;
+    store.set('muted', settings.muted ? '1' : '0');
+    applyMute();
+  }
+  function openSettings() {
+    titleIn.value = settings.title; subIn.value = settings.subtitle;
+    settingsEl.hidden = false; titleIn.focus(); titleIn.select();
+  }
+  function closeSettings() { settingsEl.hidden = true; cvs.focus(); }
+
+  titleIn.addEventListener('input', () => { settings.title = titleIn.value.trim(); store.set('title', settings.title); });
+  subIn.addEventListener('input', () => { settings.subtitle = subIn.value.trim(); store.set('subtitle', settings.subtitle); });
+  document.getElementById('soundToggle').addEventListener('change', e => {
+    initAudio(); settings.muted = !e.target.checked; store.set('muted', settings.muted ? '1' : '0'); applyMute();
+  });
+  document.getElementById('settingsForm').addEventListener('submit', e => { e.preventDefault(); closeSettings(); });
+  settingsEl.addEventListener('click', e => { if (e.target === settingsEl) closeSettings(); });
+
+  document.getElementById('btnSound').addEventListener('click', e => { toggleMute(); e.currentTarget.blur(); });
+  document.getElementById('btnFull').addEventListener('click', e => { toggleFullscreen(); e.currentTarget.blur(); });
+  document.getElementById('btnSettings').addEventListener('click', e => { openSettings(); e.currentTarget.blur(); });
+  cvs.addEventListener('click', () => { if (settingsEl.hidden) action(); });
+
+  window.addEventListener('keydown', e => {
+    if (!settingsEl.hidden) { if (e.key === 'Escape') { e.preventDefault(); closeSettings(); } return; }
+    if (e.target && /^(INPUT|TEXTAREA|BUTTON)$/.test(e.target.tagName) && e.key !== 'Escape') { if (e.code !== 'Space') return; }
+    const k = e.key.toLowerCase();
+    if (e.code === 'Space' || k === 'enter') { e.preventDefault(); action(); }
+    else if (k === 'escape') { if (state !== 'lobby') { e.preventDefault(); killRaceAudio(); state = 'lobby'; race = null; particles = []; } }
+    else if (k === 'f') toggleFullscreen();
+    else if (k === 'm') toggleMute();
+    else if (k === 's') { e.preventDefault(); openSettings(); }
+  });
+
+  // hide buttons + cursor when the mouse rests
+  let idleTimer = null;
+  function wake() {
+    stage.classList.remove('idle');
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => { if (settingsEl.hidden) stage.classList.add('idle'); }, 2500);
+  }
+  stage.addEventListener('mousemove', wake);
+  stage.addEventListener('touchstart', wake, { passive: true });
+
+  // test hook (used to check the race maths; harmless for players)
+  window.iceDerby = { buildRace, progressAt, RACE_T, start: startCountdown, state: () => state };
+
+  applyMute();
+  fit();
+  wake();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
