@@ -168,9 +168,9 @@
    *  Constants
    * ------------------------------------------------------------------ */
   const W = 320, H = 180;
-  const RACE_T = 30;              // seconds — the winner crosses at exactly this time
+  const RACE_T = 25;              // seconds — the winner crosses at exactly this time
   const DT = 1 / 120;             // race curve resolution
-  const T_MAX = 50;               // curves run past 30 s so the others can finish
+  const T_MAX = 50;               // curves run past the race time so the others can finish
   const COUNTDOWN = 3;            // 3-2-1 then GO
 
   const LANE_Y0 = 33, LANE_H = 22, LANES = 6;
@@ -419,9 +419,9 @@
     p(FINISH_X, LANE_Y0, 1, LANE_END - LANE_Y0, C.red);
 
     // boards: far side (top) and near side (bottom), ends
-    p(0, 30, W, 1, C.yellow); p(0, 31, W, 2, C.white);
-    p(0, LANE_END, W, 2, C.white); p(0, LANE_END + 2, W, 1, C.yellow);
-    p(ICE_X1, LANE_Y0, 4, LANE_END - LANE_Y0, C.white); p(ICE_X1 + 4, LANE_Y0, 2, LANE_END - LANE_Y0, C.yellow);
+    p(0, 30, W, 1, C.pink); p(0, 31, W, 2, C.white);
+    p(0, LANE_END, W, 2, C.white); p(0, LANE_END + 2, W, 1, C.pink);
+    p(ICE_X1, LANE_Y0, 4, LANE_END - LANE_Y0, C.white); p(ICE_X1 + 4, LANE_Y0, 2, LANE_END - LANE_Y0, C.pink);
     // player bench / start gate
     p(0, LANE_Y0, ICE_X0 - 1, LANE_END - LANE_Y0, C.panel);
     p(ICE_X0 - 1, LANE_Y0, 1, LANE_END - LANE_Y0, C.white);
@@ -486,7 +486,7 @@
     let best = null;
 
     for (let attempt = 0; attempt < 400; attempt++) {
-      // distance covered at 30 s: winner = 1, everyone else short of the line
+      // distance covered at RACE_T: winner = 1, everyone else short of the line
       const d = new Array(LANES);
       d[winner] = 1;
       const others = [0, 1, 2, 3, 4, 5].filter(i => i !== winner).sort(() => rnd() - 0.5);
@@ -502,16 +502,16 @@
       }
 
       // count lead changes and check the drama
-      let leader = -1, changes = 0, winnerLedAt25 = false;
+      let leader = -1, changes = 0, winnerLedLate = false;
       for (let t = 1; t <= RACE_T - 0.5; t += 0.25) {
         const j = Math.round(t / DT);
         let L = 0;
         for (let i = 1; i < LANES; i++) if (curves[i][j] > curves[L][j]) L = i;
         if (leader !== -1 && L !== leader) changes++;
         leader = L;
-        if (Math.abs(t - (RACE_T - 5)) < 0.01) winnerLedAt25 = (L === winner);
+        if (Math.abs(t - (RACE_T - 5)) < 0.01) winnerLedLate = (L === winner);
       }
-      const ok = changes >= 3 && (!wantComeback || !winnerLedAt25);
+      const ok = changes >= 3 && (!wantComeback || !winnerLedLate);
       best = { winner, curves, d };
       if (ok) break;
     }
@@ -721,10 +721,10 @@
   function panel(x, y, w, h) {
     x |= 0; y |= 0;
     ctx.globalAlpha = 0.92; px(x + 1, y + 1, w - 2, h - 2, C.black); ctx.globalAlpha = 1;
-    px(x + 2, y, w - 4, 2, C.yellow); px(x + 2, y + h - 2, w - 4, 2, C.yellow);
-    px(x, y + 2, 2, h - 4, C.yellow); px(x + w - 2, y + 2, 2, h - 4, C.yellow);
-    px(x + 1, y + 1, 1, 1, C.yellow); px(x + w - 2, y + 1, 1, 1, C.yellow);
-    px(x + 1, y + h - 2, 1, 1, C.yellow); px(x + w - 2, y + h - 2, 1, 1, C.yellow);
+    px(x + 2, y, w - 4, 2, C.pink); px(x + 2, y + h - 2, w - 4, 2, C.pink);
+    px(x, y + 2, 2, h - 4, C.pink); px(x + w - 2, y + 2, 2, h - 4, C.pink);
+    px(x + 1, y + 1, 1, 1, C.pink); px(x + w - 2, y + 1, 1, 1, C.pink);
+    px(x + 1, y + h - 2, 1, 1, C.pink); px(x + w - 2, y + h - 2, 1, 1, C.pink);
     px(x + 3, y + 3, w - 6, 1, C.line);
   }
 
@@ -912,9 +912,9 @@
       const p = PLAYERS[race.winner];
       const since = t - tFinish;
       const pw = 184, ph = 72, x = 58, y = RINK_MID - ph / 2;
-      if (since > 0.35) {
+      {
         panel(x, y, pw, ph);
-        const pop = since < 0.45 ? 4 : 3;
+        const pop = since < 0.12 ? 4 : 3;
         textC('WINNER!', x + pw / 2, y + 8, pop, C.pink);
         const name = p.name;
         const total = 16 + 6 + textW(name, 2);
@@ -922,8 +922,6 @@
         numberBox(race.winner, bx, y + 36, 2, false);
         text(name, bx + 22, y + 37, 2, p.c);
         if (since > 1.2 && Math.floor(t * 1.6) % 2 === 0) textC('PRESS SPACE FOR NEXT RACE', x + pw / 2, y + 59, 1, C.white);
-      } else {
-        textC('GOAL!', 168, RINK_MID - 14, 4, C.red, true);
       }
       drawFooter('WINNER  #' + p.n + ' ' + p.name, C.pink, 'SPACE: NEXT RACE');
     }

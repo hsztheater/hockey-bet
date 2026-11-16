@@ -8,7 +8,7 @@ A 90s-style pixel art betting race for events at an ice hockey venue. Six hockey
 
 - Six players, each with their own jersey colour and number:
   1 Red · 2 Blue · 3 Green · 4 Yellow · 5 Orange · 6 Purple
-- Every race lasts exactly **30 seconds**.
+- Every race lasts exactly **25 seconds**.
 - Speeds change during the race (bursts, slow patches, lead changes), but there is always **one single winner** and never a tie.
 - Each player has a true 1 in 6 chance. The winner is drawn at the start with the browser's secure random generator, and the race is then shaped around that result.
 - The winner shoots into the net, the goal horn sounds and the lamp lights up. The other players cross the goal line afterwards, and their finishing place is shown next to the net.
