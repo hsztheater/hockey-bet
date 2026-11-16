@@ -15,6 +15,7 @@
     --white: #f6f4ee;
     --muted: #9b978c;
     --yellow: #ffcc10;
+    --pink: #ff4fa3;
     --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Courier New", monospace;
   }
   html, body { height: 100%; margin: 0; }
@@ -61,13 +62,13 @@
     font: 700 12px/1 var(--mono);
     letter-spacing: .08em;
     text-transform: uppercase;
-    color: var(--yellow);
+    color: var(--pink);
     background: var(--black);
-    border: 2px solid var(--yellow);
+    border: 2px solid var(--pink);
     padding: 7px 10px;
     cursor: pointer;
   }
-  .btn:hover { background: var(--yellow); color: var(--black); }
+  .btn:hover { background: var(--pink); color: var(--black); }
   .btn:focus-visible { outline: 2px solid var(--white); outline-offset: 2px; }
 
   .settings {
@@ -82,7 +83,7 @@
     width: min(420px, 100%);
     box-sizing: border-box;
     background: var(--surface);
-    border: 3px solid var(--yellow);
+    border: 3px solid var(--pink);
     box-shadow: 6px 6px 0 var(--black);
     padding: 20px;
     display: flex;
@@ -94,7 +95,7 @@
     font: 800 18px/1 var(--mono);
     letter-spacing: .16em;
     text-transform: uppercase;
-    color: var(--yellow);
+    color: var(--pink);
   }
   .field { display: flex; flex-direction: column; gap: 6px; }
   .field label, .check {
@@ -112,9 +113,9 @@
     border: 2px solid var(--line);
     padding: 8px 10px;
   }
-  .field input:focus { outline: none; border-color: var(--yellow); }
+  .field input:focus { outline: none; border-color: var(--pink); }
   .check { display: flex; align-items: center; gap: 8px; color: var(--white); cursor: pointer; }
-  .check input { accent-color: var(--yellow); width: 16px; height: 16px; }
+  .check input { accent-color: var(--pink); width: 16px; height: 16px; }
   .keys {
     margin: 0;
     font-size: 12px;
@@ -180,10 +181,10 @@
 
   const C = {
     black: '#0a0a0b', panel: '#141415', panel2: '#1c1c1e', line: '#2b2b2e',
-    yellow: '#ffcc10', white: '#f6f4ee', muted: '#9b978c',
+    yellow: '#ffcc10', pink: '#ff4fa3', white: '#f6f4ee', muted: '#9b978c',
     ice: '#eaf3f7', iceShade: '#dbe8ef', iceLight: '#f6fbfd', laneLine: '#c6dae5',
     blue: '#2a5bd7', red: '#d8262e', crease: '#a9d4ef',
-    helmet: '#141417', helmetHi: '#4a4a54', skin: '#f1bf94', skinSh: '#c98d63',
+    helmet: '#ff4fa3', helmetHi: '#ffb3d6', skin: '#f1bf94', skinSh: '#c98d63',
     pants: '#1b1b1f', boot: '#2a2a30', blade: '#c4d3dc', stick: '#c99a5b', glove: '#3a2a20',
     puck: '#0b0b0c'
   };
@@ -430,7 +431,7 @@
   /* crowd behind the far boards */
   const FANS = [];
   (function makeCrowd() {
-    const shirts = [C.yellow, C.yellow, C.yellow, '#26262c', C.white, '#ff8a1f', '#2f4fa8', C.yellow];
+    const shirts = [C.pink, C.pink, C.pink, '#26262c', C.white, '#ff8a1f', '#2f4fa8', C.pink];
     const skins = ['#f1bf94', '#d9a274', '#a8714a', '#7a4e32', '#f6d2b0'];
     for (let row = 0; row < 3; row++) {
       for (let x = 2 + row * 2; x < W - 2; x += 4) {
@@ -754,7 +755,7 @@
     const title = settings.title || ' ';
     const sub = settings.subtitle || '';
     let sc = textW(title, 2) + textW(sub, 1) + 12 > 220 ? 1 : 2;
-    const tw = text(title, 6, sc === 2 ? 2 : 6, sc, C.yellow);
+    const tw = text(title, 6, sc === 2 ? 2 : 6, sc, C.pink);
     if (sub) {
       const sx = 6 + tw + 7;
       if (sx + textW(sub) < 226) {
@@ -768,7 +769,7 @@
     } else {
       const s = fmtTime(raceTime);
       const late = state === 'race' && raceTime >= RACE_T - 5;
-      text(s, 314 - textW(s, 2), 2, 2, late && Math.floor(raceTime * 4) % 2 ? C.white : C.yellow);
+      text(s, 314 - textW(s, 2), 2, 2, late && Math.floor(raceTime * 4) % 2 ? C.white : C.pink);
     }
     px(0, 17, W, 1, C.line);
   }
@@ -884,7 +885,7 @@
     if (state === 'lobby') {
       const pw = 190, ph = 48, x = 96, y = RINK_MID - ph / 2;
       panel(x, y, pw, ph);
-      textC('PLACE YOUR BETS', x + pw / 2, y + 10, 2, C.yellow);
+      textC('PLACE YOUR BETS', x + pw / 2, y + 10, 2, C.pink);
       if (Math.floor(t * 1.6) % 2 === 0) textC('PRESS SPACE TO START', x + pw / 2, y + 32, 1, C.white);
       drawFooter('SPACE: START   F: FULLSCREEN   M: SOUND   S: SETUP', C.muted, null);
     }
@@ -894,12 +895,12 @@
       const local = (t - tCount0) - k;
       const sc = local < 0.08 ? 7 : 6;
       const d = String(3 - k);
-      textC(d, 168, RINK_MID - 3.5 * sc, sc, C.yellow, true);
+      textC(d, 168, RINK_MID - 3.5 * sc, sc, C.pink, true);
       drawFooter('GET READY...', C.white, null);
     }
 
     if (state === 'race') {
-      if (raceTime < 0.7) textC('GO!', 168, RINK_MID - 21, 6, C.yellow, true);
+      if (raceTime < 0.7) textC('GO!', 168, RINK_MID - 21, 6, C.pink, true);
       const L = PLAYERS[leader];
       px(0, LANE_END + 3, W, H - LANE_END - 3, C.black);
       const w = text('LEADER', 6, 171, 1, C.muted);
@@ -914,7 +915,7 @@
       if (since > 0.35) {
         panel(x, y, pw, ph);
         const pop = since < 0.45 ? 4 : 3;
-        textC('WINNER!', x + pw / 2, y + 8, pop, C.yellow);
+        textC('WINNER!', x + pw / 2, y + 8, pop, C.pink);
         const name = p.name;
         const total = 16 + 6 + textW(name, 2);
         const bx = x + pw / 2 - total / 2;
@@ -924,7 +925,7 @@
       } else {
         textC('GOAL!', 168, RINK_MID - 14, 4, C.red, true);
       }
-      drawFooter('WINNER  #' + p.n + ' ' + p.name, C.yellow, 'SPACE: NEXT RACE');
+      drawFooter('WINNER  #' + p.n + ' ' + p.name, C.pink, 'SPACE: NEXT RACE');
     }
 
     requestAnimationFrame(frame);
