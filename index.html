@@ -914,8 +914,7 @@
       const pw = 184, ph = 72, x = 58, y = RINK_MID - ph / 2;
       {
         panel(x, y, pw, ph);
-        const pop = since < 0.12 ? 4 : 3;
-        textC('WINNER!', x + pw / 2, y + 8, pop, C.pink);
+        textC('WINNER!', x + pw / 2, y + 8, 3, C.pink);
         const name = p.name;
         const total = 16 + 6 + textW(name, 2);
         const bx = x + pw / 2 - total / 2;
